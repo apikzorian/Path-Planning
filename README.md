@@ -1,5 +1,30 @@
 # CarND-Path-Planning-Project
 Self-Driving Car Engineer Nanodegree Program
+
+## Description
+
+### Trajectory Generation
+
+To build the thrajectory for driving the car around the track, I utilized the spline library to generate a basic trajectory for the upcoming movement of the car. The idea is to collected 5 points and base 50 upcoming points on this sample. When the car first starts "cold", these 50 points are utilized to start the car. However, when the previous points are available, we utilize these points to get the car moving and use the spline to fill the remaining points.
+
+The spline defines 5 points based in Frenet coordinates, of which the first wo define the initial orinetation of the spline, while the last three are waypoints located 30, 60, and 90 meters ahead in the lane we want to be in. These points were converted to global xy coordinates using the `getXY` function (main.cc, line 150). 
+
+### Switching Lanes
+
+Naturally, if a car driving in front of us is going too slow, our natural instinct is to pass the car. In my implementation, I checked to see if there was a car ahead and if we got too close, I began slowing down to match its speed. If the speed became more than 3 miles/hour below the speed limit, we knew it was time to switch lanes and pass this car.
+
+To change lanes, two things were taken into consideration. The first was which lane we wanted to switch into, the second was whether or not there was a car in this lane. Using the `pathPlan` (main.cc, line 202), we could estimate whether or not there was another car in the lane we were targeting. If there was no car in that lane, our car would switch to that lane. If, however, there was a car, we would continue to wait and maintain the speed of the car ahead of us without ever colliding.
+
+### Montoring Speed
+
+While behind a car and 
+
+
+
+
+
+
+## Running the Project
    
 ### Simulator. You can download the Term3 Simulator BETA which contains the Path Planning Project from the [releases tab](https://github.com/udacity/self-driving-car-sim/releases).
 
@@ -102,33 +127,3 @@ Please (do your best to) stick to [Google's C++ style guide](https://google.gith
 
 Note: regardless of the changes you make, your project must be buildable using
 cmake and make!
-
-
-## Call for IDE Profiles Pull Requests
-
-Help your fellow students!
-
-We decided to create Makefiles with cmake to keep this project as platform
-agnostic as possible. Similarly, we omitted IDE profiles in order to ensure
-that students don't feel pressured to use one IDE or another.
-
-However! I'd love to help people get up and running with their IDEs of choice.
-If you've created a profile for an IDE that you think other students would
-appreciate, we'd love to have you add the requisite profile files and
-instructions to ide_profiles/. For example if you wanted to add a VS Code
-profile, you'd add:
-
-* /ide_profiles/vscode/.vscode
-* /ide_profiles/vscode/README.md
-
-The README should explain what the profile does, how to take advantage of it,
-and how to install it.
-
-Frankly, I've never been involved in a project with multiple IDE profiles
-before. I believe the best way to handle this would be to keep them out of the
-repo root to avoid clutter. My expectation is that most profiles will include
-instructions to copy files to a new location to get picked up by the IDE, but
-that's just a guess.
-
-One last note here: regardless of the IDE used, every submitted project must
-still be compilable with cmake and make./
