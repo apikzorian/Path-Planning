@@ -17,7 +17,7 @@ To change lanes, two things were taken into consideration. The first was which l
 
 ### Montoring Speed
 
-While behind a car and 
+While trailing a car and looking for a lange to change, we monitor the speed of the car in front of us and sustain a safe distance until it is safe to change lanes. At the beginning, our car is initialized with a zero speed and begins accelerating at a constant acceleration while logging the waypoints for its trajectory. The continues until the speed limit (49.5 m/h) is reached. After this, it stays constant at the speed limit until it encounters an obstacle ahead of it that requires it to slow down. It will slow down until it matches the speed of the vehicle ahead in order to avoid a collision. The deceleration is constrained to 0.5g to limit jerk and and max acceleration. 
 
 
 
