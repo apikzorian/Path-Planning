@@ -10,7 +10,11 @@
 #include "json.hpp"
 #include "spline.h"
 
+#include "Eigen-3.3/Eigen/LU"
+
 using namespace std;
+using Eigen::MatrixXd;
+using Eigen::VectorXd;
 
 // for convenience
 using json = nlohmann::json;
@@ -21,18 +25,10 @@ double deg2rad(double x) { return x * pi() / 180; }
 double rad2deg(double x) { return x * 180 / pi(); }
 
 // Global constants
-//const double MAX_S = 6945.554; // meters
-const double LANE_WIDTH = 4.0; // meters
-const double SPEED_CONV = 2.24; // meters to mph
-const double MAX_SPEED = 49.5; // meters to mph
+const double MAX_S = 6945.554;
+const double LANE_WIDTH = 4.0;
+const double SPEED_CONV = 2.24;
 
-// start in lane 
-int lane = 1;
-
-// Have reference velocity to target
-// Start at zero to make sure we don't instantly speed up, should be gradual
-// Later we increment .224
-double ref_vel = 0.0;
 
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
@@ -175,56 +171,27 @@ vector<double> getXY(double s, double d, vector<double> maps_s, vector<double> m
 }
 
 
-vector<vector<double>> path_planning(double car_s, vector<double> map_waypoints_s, vector<double> map_waypoints_x, vector<double> map_waypoints_y)
-{
-
-  double dist_inc = 0.3; // how much the points are going to be spaced apart
-  vector<double> next_x_vals;
-  vector<double> next_y_vals;
-
-  for (int i =0; i < 50; i++) 
-  {
-    double next_s = car_s + (i+1)*dist_inc;
-    double next_d = 6;
-
-    vector<double> xy = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
-
-
-    next_x_vals.push_back(xy[0]);
-    next_y_vals.push_back(xy[1]);
-  }
-
-  return {next_x_vals, next_y_vals};
-
-
-}
-
-bool pathPlan(double car_s, double car_speed, int targetLane, 
-  vector<vector<double>> sensor_fusion, double minSepDistance) {
-
-   bool isSafeToEnter = true;
+// Decide if it is safe to switch into new lane
+bool pathPlan(double car_s, double car_speed, int new_lane, 
+  vector<vector<double>> sensor_fusion, double min_dist) {
+  
+  bool switchLanes = true;
   for (int i=0; i<sensor_fusion.size(); i++) {
     float d = sensor_fusion[i][6];
 
-    bool in_target_lane = d < LANE_WIDTH*(targetLane+1) && d > LANE_WIDTH*(targetLane);
+    bool in_target_lane = d < LANE_WIDTH*(new_lane+1) && d > LANE_WIDTH*(new_lane);
     double check_car_s = sensor_fusion[i][5];
     double relRange = car_s-check_car_s;
 
-
-    double otherCarSpeed = sqrt(sensor_fusion[i][3]*sensor_fusion[i][3] + 
-                                sensor_fusion[i][4]*sensor_fusion[i][4]);
-    double otherCarRelSpeed = otherCarSpeed - car_speed;
-    double timeToIntercept = relRange / otherCarRelSpeed;
-
-    bool collisionImminent = fabs(timeToIntercept) < 5; // seconds
-
-    if (in_target_lane && (fabs(relRange) < minSepDistance)) {
-      isSafeToEnter = false;
+    // Do not switch lanes if car is within min_distance
+    if (in_target_lane && (fabs(relRange) < min_dist)) {
+      switchLanes = false;
     } 
   }  
 
-  return isSafeToEnter;
+  return switchLanes;
 }
+
 
 int main() {
   uWS::Hub h;
@@ -263,26 +230,30 @@ int main() {
     map_waypoints_dy.push_back(d_y);
   }
 
+  int lane = 1;
 
+  double ref_vel = 0.0; // mph
+  const double MAX_SPEED = 49.5;
 
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  h.onMessage([&ref_vel, &MAX_SPEED, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy,&lane](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
     // The 2 signifies a websocket event
-
+    //auto sdata = string(data).substr(0, length);
+    //cout << sdata << endl;
     if (length && length > 2 && data[0] == '4' && data[1] == '2') {
 
       auto s = hasData(data);
 
       if (s != "") {
         auto j = json::parse(s);
-
+        
         string event = j[0].get<string>();
         
         if (event == "telemetry") {
           // j[1] is the data JSON object
-
+          
           // Main car's localization Data
             double car_x = j[1]["x"];
             double car_y = j[1]["y"];
@@ -298,15 +269,15 @@ int main() {
             double end_path_s = j[1]["end_path_s"];
             double end_path_d = j[1]["end_path_d"];
 
+
             // Sensor Fusion Data, a list of all other cars on the same side of the road.
             // outer vector = car parameters
             // inner vector = actual parameters
-
             auto sensor_fusion = j[1]["sensor_fusion"];
-         
+
             json msgJson;
 
-            int prev_size = previous_path_x.size();
+          int prev_size = previous_path_x.size();
 
             //Checking for cars in front of us
 
@@ -350,6 +321,8 @@ int main() {
             // reference velocity (~ 5 m/s^2)
             if (too_close) 
             {
+
+              std::cout << "TOO CLOSE!!!" << std::endl;
               bool not_in_left = lane > 0;
               bool not_in_right = lane < 2;
 
@@ -365,32 +338,42 @@ int main() {
                 right_pass = pathPlan(car_s, car_speed, lane+1, sensor_fusion, 20);                
              } else {
                  right_pass = false;
+                 std::cout << "Right pass = false" << std::endl;
              }
 
               if (not_in_left && left_pass) {                  
                   lane -= 1;
+                  std::cout << "Not in left lane and safe to pass. Switching lanes" << std::endl;
               } else if (not_in_right && right_pass) {
                   lane += 1;
+                  std::cout << "Not in right lane and safe to pass. Switching lanes" << std::endl;
               } else if (ref_vel >= new_speed) {
-                ref_vel -= 0.244;                
+                std::cout << "Decelerate!" << std::endl;
+                ref_vel -= 0.344;                
               }
             } else {
               if (ref_vel < new_speed) {
                 ref_vel += 0.224;                
               }
+
+              
+              bool closeToSpeedLimit = (MAX_SPEED - ref_vel) < 5;
+              bool safeSwitch = pathPlan(car_s, car_speed, lane+1, sensor_fusion, 50);
+              if (lane < 2 && closeToSpeedLimit && safeSwitch) {
+                lane += 1;
+              }
+
             }
 
 
-            vector<double> ptsx;
-            vector<double> ptsy;
-
-
+            // Algorithm below taken derived from Udacity's Path Planning Project Walkthrough
+            vector<double> ptsx, ptsy;
             double ref_x = car_x;
-            double ref_y = car_y;
-            double ref_yaw = deg2rad(car_yaw);
-
-
+            double ref_y = car_d;
+            double ref_yaw = (car_yaw);
+                        
             if (prev_size < 2) {
+
               double prev_car_x = car_x - cos(car_yaw);
               double prev_car_y = car_y - sin(car_yaw);
 
@@ -406,6 +389,7 @@ int main() {
 
               double ref_x_prev = previous_path_x[prev_size-2];
               double ref_y_prev = previous_path_y[prev_size-2];
+
               ref_yaw = atan2(ref_y - ref_y_prev, ref_x - ref_x_prev);
 
               ptsx.push_back(ref_x_prev);
@@ -414,26 +398,30 @@ int main() {
               ptsy.push_back(ref_y_prev);
               ptsy.push_back(ref_y);
             }
-
             // In Fernet add evenly 30m spaced points ahead of the starting reference
+
             vector<double> next_wp0 = getXY(car_s+30, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
             vector<double> next_wp1 = getXY(car_s+60, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
             vector<double> next_wp2 = getXY(car_s+90, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
-            
+          
             ptsx.push_back(next_wp0[0]);
             ptsx.push_back(next_wp1[0]);
             ptsx.push_back(next_wp2[0]);
+
             ptsy.push_back(next_wp0[1]);
             ptsy.push_back(next_wp1[1]);
             ptsy.push_back(next_wp2[1]);
 
+
+
             // At this point, ptsx and ptsy contain the 2 previous points + the location of the car in 30, 60
             // and 90 meters
 
-
             // Transform these to local car coordinates
+
             for (int i=0; i<ptsx.size(); i++) {
               // shift car reference angle to 0 degrees
+
               double shift_x = ptsx[i] - ref_x;
               double shift_y = ptsy[i] - ref_y;
 
@@ -441,7 +429,6 @@ int main() {
               ptsy[i] = (shift_x * sin(0-ref_yaw) + shift_y*cos(0-ref_yaw));
             }
 
-            // Create spline
             tk::spline s;
 
             // set (x,y) points to the spline
@@ -450,15 +437,16 @@ int main() {
             // Define the actual (x,y) points we will use for the planner
             vector<double> next_x_vals;
             vector<double> next_y_vals;
+
             //start with all of the previous path points from last time
             for (int i=0; i<previous_path_x.size(); i++) {
               next_x_vals.push_back(previous_path_x[i]);
               next_y_vals.push_back(previous_path_y[i]);
             }
-            // Calculate how to break up spline points so that we travel at our desired reference velocity
+
             double target_x = 30.0;
             double target_y = s(target_x);
-            double target_dist = sqrt(target_x*target_x + (target_y)*(target_y));
+            double target_dist = sqrt(target_x*target_x + target_y*target_y);
 
             double x_add_on = 0.0;
 
@@ -466,9 +454,10 @@ int main() {
             // Will always output 50 points
             for (int i=1; i<=50 - previous_path_x.size(); i++) {
               double N = (target_dist) / (0.02 * ref_vel /2.24);
-              double x_point = x_add_on + (target_x)/ N;
+              double x_point = x_add_on + target_x / N;
               double y_point = s(x_point);
               x_add_on = x_point;
+
               double x_ref = x_point;
               double y_ref = y_point;
 
@@ -485,6 +474,8 @@ int main() {
               next_y_vals.push_back(y_point);
             }
 
+
+            // TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
             msgJson["next_x"] = next_x_vals;
             msgJson["next_y"] = next_y_vals;
 
