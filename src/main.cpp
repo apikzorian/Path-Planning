@@ -172,6 +172,7 @@ vector<double> getXY(double s, double d, vector<double> maps_s, vector<double> m
 
 
 // Decide if it is safe to switch into new lane
+// Helped by Kelly Smith (@ksmith6)
 bool pathPlan(double car_s, double car_speed, int new_lane, 
   vector<vector<double>> sensor_fusion, double min_dist) {
   
